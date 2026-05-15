@@ -402,3 +402,62 @@ async def get_places_near_hotel(
 
     places.sort(key=lambda x: x["distance_km"])
     return {"places": places, "count": len(places)}
+
+
+# ── TravelMate Chat Endpoint ──────────────────────────────────────────────────
+
+ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
+
+class ChatMessage(BaseModel):
+    role: str
+    content: str
+
+class ChatRequest(BaseModel):
+    hotel_name: str
+    hotel_address: str
+    messages: list[ChatMessage]
+
+@app.post("/travelmate/chat")
+async def travelmate_chat(req: ChatRequest):
+    """Proxy Claude API call through backend to keep API key secure."""
+    if not ANTHROPIC_API_KEY:
+        raise HTTPException(status_code=500, detail="ANTHROPIC_API_KEY not set")
+
+    system_prompt = f"""You are TravelMate, a friendly AI travel guide helping a traveler explore around {req.hotel_name} located at {req.hotel_address}.
+
+Your job:
+1. Understand what the traveler wants
+2. Respond in a warm, concise way (2-3 sentences max)
+3. At the end of your response, output a JSON block with this exact format to trigger a place search:
+<search>{{"category": "restaurant", "keyword": "rooftop"}}</search>
+
+Category must be one of: restaurant, bar, cafe, museum, tourist_attraction, park, shopping_mall, spa, night_club, gym, pharmacy, hospital, subway_station, bus_station, taxi_stand
+
+keyword is optional — only include if the user asked for something specific like "vegan", "rooftop", "street food", "jazz" etc.
+
+If the traveler is asking something that doesn't need a place search (like general questions), skip the <search> block.
+
+Keep responses short and friendly. Use 1-2 emojis max."""
+
+    async with httpx.AsyncClient(timeout=30) as client:
+        resp = await client.post(
+            "https://api.anthropic.com/v1/messages",
+            headers={
+                "x-api-key": ANTHROPIC_API_KEY,
+                "anthropic-version": "2023-06-01",
+                "content-type": "application/json",
+            },
+            json={
+                "model": "claude-haiku-4-5-20251001",
+                "max_tokens": 1000,
+                "system": system_prompt,
+                "messages": [m.dict() for m in req.messages],
+            }
+        )
+
+    if not resp.is_success:
+        raise HTTPException(status_code=502, detail=f"AI service error: {resp.text}")
+
+    data = resp.json()
+    text = data.get("content", [{}])[0].get("text", "")
+    return {"response": text}

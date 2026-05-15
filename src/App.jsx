@@ -251,19 +251,18 @@ If the traveler is asking something that doesn't need a place search (like gener
 
 Keep responses short and friendly. Use 1-2 emojis max.`;
 
-      const response = await fetch("https://api.anthropic.com/v1/messages", {
+      const response = await fetch(`${BACKEND}/travelmate/chat`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          model: "claude-sonnet-4-20250514",
-          max_tokens: 1000,
-          system: systemPrompt,
+          hotel_name: hotel.name,
+          hotel_address: hotel.address,
           messages: history.map(m => ({ role: m.role, content: m.content })),
         }),
       });
 
       const data = await response.json();
-      const raw = data.content?.[0]?.text || "Sorry, I couldn't process that.";
+      const raw = data.response || "Sorry, I couldn't process that.";
 
       // Extract search block if present
       const searchMatch = raw.match(/<search>([\s\S]*?)<\/search>/);
